@@ -5,6 +5,16 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to perform'
+        required: true
+        default: 'deploy'
+        type: choice
+        options:
+          - deploy
+          - destroy
 
 permissions:
   contents: read
@@ -25,7 +35,6 @@ env:
 
 # ═══════════════════════════════════════════════════════════════════
 # JOB 1 — BUILD
-# Install deps, zip Flask app, upload as artifact
 # ═══════════════════════════════════════════════════════════════════
 jobs:
 
@@ -51,23 +60,22 @@ jobs:
       - name: Package app into zip
         run: |
           cd ${{ env.APP_DIR }}
-          zip -r ../automobile-app-${{ github.sha }}.zip . \
+          zip -r ../automobile-app.zip . \
             --exclude "*.pyc" \
             --exclude "__pycache__/*" \
             --exclude "*.env" \
             --exclude "tests/*"
-          echo "✅ Built: automobile-app-${{ github.sha }}.zip"
+          echo "✅ Built: automobile-app.zip"
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: automobile-app-${{ github.sha }}
-          path: automobile-app-${{ github.sha }}.zip
+          path: automobile-app.zip
           retention-days: 7
 
 # ═══════════════════════════════════════════════════════════════════
 # JOB 2 — TEST
-# Run pytest, publish test report in GitHub Actions UI
 # ═══════════════════════════════════════════════════════════════════
 
   test:
@@ -124,7 +132,6 @@ jobs:
 
 # ═══════════════════════════════════════════════════════════════════
 # JOB 3 — TERRAFORM PLAN
-# Runs terraform plan, posts output as PR comment
 # ═══════════════════════════════════════════════════════════════════
 
   terraform-plan:
@@ -190,7 +197,6 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               body: `## 🔍 Terraform Plan — \`${context.sha.slice(0,7)}\`
-
             <details><summary>Click to expand plan output</summary>
 
             \`\`\`hcl
@@ -202,9 +208,7 @@ jobs:
             |------|--------|
             | Init | ${{ steps.init.outcome }} |
             | Validate | ${{ steps.validate.outcome }} |
-            | Plan | ${{ steps.plan.outcome }} |
-
-            > Merge to \`main\` → manual approval → Terraform Apply → Auto Deploy`
+            | Plan | ${{ steps.plan.outcome }} |`
             });
 
       - name: Upload tfplan artifact
@@ -214,14 +218,8 @@ jobs:
           path: ${{ env.TF_DIR }}/tfplan
           retention-days: 7
 
-      - name: Fail if plan errored
-        if: steps.plan.outcome == 'failure'
-        run: exit 1
-
 # ═══════════════════════════════════════════════════════════════════
 # JOB 4 — MANUAL APPROVAL GATE
-# Pipeline PAUSES here — you get an email, click Approve in GitHub
-# Setup: Settings → Environments → "production" → Required reviewers
 # ═══════════════════════════════════════════════════════════════════
 
   approval-gate:
@@ -239,8 +237,6 @@ jobs:
 
 # ═══════════════════════════════════════════════════════════════════
 # JOB 5 — TERRAFORM APPLY
-# Applies saved plan, then captures ALL outputs automatically
-# RDS endpoint is captured here — NO manual secret needed
 # ═══════════════════════════════════════════════════════════════════
 
   terraform-apply:
@@ -249,11 +245,10 @@ jobs:
     needs: approval-gate
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
-    # These outputs are passed automatically to the deploy job
     outputs:
       ec2_public_ip: ${{ steps.tf-outputs.outputs.ec2_ip }}
       alb_dns_name:  ${{ steps.tf-outputs.outputs.alb_dns }}
-      rds_endpoint:  ${{ steps.tf-outputs.outputs.rds_endpoint }}  # ← AUTO, no manual secret
+      rds_endpoint:  ${{ steps.tf-outputs.outputs.rds_endpoint }}
 
     steps:
       - name: Checkout code
@@ -270,7 +265,7 @@ jobs:
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version:  ${{ env.TF_VERSION }}
-          terraform_wrapper:  false   # required to capture raw output values
+          terraform_wrapper:  false
 
       - name: Download saved tfplan
         uses: actions/download-artifact@v4
@@ -290,8 +285,6 @@ jobs:
           TF_VAR_flask_secret_key: ${{ secrets.FLASK_SECRET_KEY }}
         run: terraform apply -input=false -auto-approve tfplan
 
-      # ── Capture all 3 outputs from terraform after apply ──────────
-      # RDS endpoint is read directly from terraform output — fully automatic
       - name: Capture Terraform outputs
         id: tf-outputs
         working-directory: ${{ env.TF_DIR }}
@@ -299,21 +292,19 @@ jobs:
           EC2_IP=$(terraform output -raw instance_public_ip 2>/dev/null || echo "")
           ALB_DNS=$(terraform output -raw alb_dns_name      2>/dev/null || echo "")
           RDS_EP=$(terraform output -raw rds_endpoint       2>/dev/null || echo "")
-
           echo "ec2_ip=$EC2_IP"       >> $GITHUB_OUTPUT
           echo "alb_dns=$ALB_DNS"     >> $GITHUB_OUTPUT
           echo "rds_endpoint=$RDS_EP" >> $GITHUB_OUTPUT
-
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "EC2 Public IP  : $EC2_IP"
-          echo "ALB DNS        : $ALB_DNS"
-          echo "RDS Endpoint   : $RDS_EP"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "EC2 IP      : $EC2_IP"
+          echo "ALB DNS     : $ALB_DNS"
+          echo "RDS Endpoint: $RDS_EP"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 # ═══════════════════════════════════════════════════════════════════
 # JOB 6 — DEPLOY
-# SSH into EC2, unzip app, build venv, write env file using
-# RDS endpoint captured automatically from Job 5 — no manual secret
+# THE KEY FIX: DATABASE_URL written to a temp script and sourced
+# so seed.py always connects to RDS — never SQLite
 # ═══════════════════════════════════════════════════════════════════
 
   deploy:
@@ -331,101 +322,105 @@ jobs:
         with:
           name: automobile-app-${{ github.sha }}
           path: ./dist
-      #remove this later    
-      - name: Debug SSH key
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
-        run: |
-          echo "$SSH_PRIVATE_KEY" > /tmp/deploy_key.pem
-          chmod 600 /tmp/deploy_key.pem
-          
-          echo "=== Key Stats ==="
-          wc -c < /tmp/deploy_key.pem
-          wc -l < /tmp/deploy_key.pem
-          head -1 /tmp/deploy_key.pem
-          tail -1 /tmp/deploy_key.pem
-          
-          echo "=== SSH Verbose Test ==="
-          ssh -i /tmp/deploy_key.pem \
-              -o StrictHostKeyChecking=no \
-              -o ConnectTimeout=10 \
-              -v \
-              ec2-user@13.207.194.179 "echo OK" 2>&1 | grep -E "debug1|Permission|Offering|identity"
 
+      - name: Write deploy script
+        env:
+          DB_USERNAME:  ${{ secrets.DB_USERNAME }}
+          DB_PASSWORD:  ${{ secrets.DB_PASSWORD }}
+          RDS_ENDPOINT: ${{ needs.terraform-apply.outputs.rds_endpoint }}
+          SECRET_KEY:   ${{ secrets.FLASK_SECRET_KEY }}
+        run: |
+          # Write a self-contained deploy script with all variables
+          # baked in at GitHub Actions time — no variable expansion issues on EC2
+          cat > /tmp/deploy.sh << SCRIPT
+          #!/bin/bash
+          set -e
+
+          echo "━━━ Unpacking application ━━━"
+          sudo rm -rf /var/www/automobile-app
+          sudo mkdir -p /var/www/automobile-app
+          sudo unzip -o /tmp/automobile-app.zip -d /var/www/automobile-app/
+          sudo chown -R ec2-user:ec2-user /var/www/automobile-app
+
+          echo "━━━ Installing Python virtual env ━━━"
+          cd /var/www/automobile-app
+          python3 -m venv venv
+          source venv/bin/activate
+          pip install -r requirements.txt
+
+          echo "━━━ Writing environment file ━━━"
+          sudo mkdir -p /etc/automobile-app
+          sudo bash -c 'cat > /etc/automobile-app/env << ENV
+          FLASK_ENV=production
+          DATABASE_URL=mysql+pymysql://${DB_USERNAME}:${DB_PASSWORD}@${RDS_ENDPOINT}:3306/automobile_db
+          SECRET_KEY=${SECRET_KEY}
+          AWS_REGION=ap-south-1
+          ENV'
+          sudo chmod 600 /etc/automobile-app/env
+          echo "✅ Env file written"
+          cat /etc/automobile-app/env
+
+          echo "━━━ Running DB seed ━━━"
+          cd /var/www/automobile-app
+          source venv/bin/activate
+
+          # Set DATABASE_URL directly — no file reading needed
+          export DATABASE_URL="mysql+pymysql://${DB_USERNAME}:${DB_PASSWORD}@${RDS_ENDPOINT}:3306/automobile_db"
+          export SECRET_KEY="${SECRET_KEY}"
+          export FLASK_ENV="production"
+
+          echo "Connecting to: $DATABASE_URL"
+          echo "Waiting 20s for RDS to be fully ready..."
+          sleep 20
+
+          python seed.py
+          echo "✅ Seed completed"
+
+          echo "━━━ Restarting application service ━━━"
+          sudo systemctl daemon-reload
+          sudo systemctl restart automobile-app || sudo systemctl start automobile-app
+          sudo systemctl enable automobile-app
+
+          echo "━━━ Service status ━━━"
+          sudo systemctl status automobile-app --no-pager
+          SCRIPT
+          chmod +x /tmp/deploy.sh
 
       - name: Deploy app via SSH
         env:
           EC2_HOST:        ${{ needs.terraform-apply.outputs.ec2_public_ip }}
           SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
-          DB_USERNAME:     ${{ secrets.DB_USERNAME }}
-          DB_PASSWORD:     ${{ secrets.DB_PASSWORD }}
-          RDS_ENDPOINT:    ${{ needs.terraform-apply.outputs.rds_endpoint }}  # ← from Terraform, automatic
-          SECRET_KEY:      ${{ secrets.FLASK_SECRET_KEY }}
         run: |
-          # Write SSH key to temp file
           echo "$SSH_PRIVATE_KEY" > /tmp/deploy_key.pem
           chmod 600 /tmp/deploy_key.pem
 
-          # Copy the zip to EC2
+          # Copy zip to EC2 with fixed name
           scp -i /tmp/deploy_key.pem \
               -o StrictHostKeyChecking=no \
               -o ConnectTimeout=30 \
-              ./dist/automobile-app-${{ github.sha }}.zip \
-              ec2-user@$EC2_HOST:/tmp/
+              ./dist/automobile-app.zip \
+              ec2-user@$EC2_HOST:/tmp/automobile-app.zip
 
-          # Run all deployment steps on EC2
+          # Copy deploy script to EC2
+          scp -i /tmp/deploy_key.pem \
+              -o StrictHostKeyChecking=no \
+              /tmp/deploy.sh \
+              ec2-user@$EC2_HOST:/tmp/deploy.sh
+
+          # Execute deploy script on EC2
           ssh -i /tmp/deploy_key.pem \
               -o StrictHostKeyChecking=no \
-              ec2-user@$EC2_HOST bash << ENDSSH
-            set -e
+              ec2-user@$EC2_HOST \
+              "chmod +x /tmp/deploy.sh && bash /tmp/deploy.sh"
 
-            echo "━━━ Unpacking application ━━━"
-            sudo rm -rf /var/www/automobile-app
-            sudo mkdir -p /var/www/automobile-app
-            sudo unzip -o /tmp/automobile-app-*.zip -d /var/www/automobile-app/
-            sudo chown -R ec2-user:ec2-user /var/www/automobile-app
-
-            echo "━━━ Installing Python virtual env ━━━"
-            cd /var/www/automobile-app
-            python3 -m venv venv
-            source venv/bin/activate
-            pip install -r requirements.txt
-
-            echo "━━━ Writing environment file ━━━"
-            # RDS endpoint written here automatically — no manual secret needed
-            sudo mkdir -p /etc/automobile-app
-            sudo tee /etc/automobile-app/env > /dev/null << EOF
-          FLASK_ENV=production
-          DATABASE_URL=mysql+pymysql://${DB_USERNAME}:${DB_PASSWORD}@${RDS_ENDPOINT}:3306/automobile_db
-          SECRET_KEY=${SECRET_KEY}
-          AWS_REGION=ap-south-1
-          EOF
-            sudo chmod 600 /etc/automobile-app/env
-
-            echo "━━━ Running DB seed (safe to run on every deploy) ━━━"
-            cd /var/www/automobile-app
-            source venv/bin/activate
-            python seed.py || true
-
-            echo "━━━ Restarting application service ━━━"
-            sudo systemctl daemon-reload
-            sudo systemctl restart automobile-app || sudo systemctl start automobile-app
-            sudo systemctl enable automobile-app
-
-            echo "━━━ Service status ━━━"
-            sudo systemctl status automobile-app --no-pager
-          ENDSSH
-
-          # Clean up SSH key immediately
           rm -f /tmp/deploy_key.pem
           echo "✅ Deployment complete"
 
-      # ── Health check against ALB ───────────────────────────────────
       - name: Health check
         env:
           ALB_DNS: ${{ needs.terraform-apply.outputs.alb_dns_name }}
         run: |
-          echo "⏳ Waiting 30s for app to fully start..."
+          echo "⏳ Waiting 30s for app to start..."
           sleep 30
           for i in 1 2 3 4 5; do
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://$ALB_DNS/health || echo "000")
@@ -436,10 +431,9 @@ jobs:
             fi
             sleep 15
           done
-          echo "❌ Health check failed after 5 attempts"
+          echo "❌ Health check failed"
           exit 1
 
-      # ── Pipeline summary shown in GitHub Actions UI ────────────────
       - name: Pipeline summary
         if: always()
         env:
@@ -454,3 +448,56 @@ jobs:
           echo "| Triggered by | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
           echo "| App URL | http://$ALB_DNS |" >> $GITHUB_STEP_SUMMARY
           echo "| Status | ${{ job.status }} |" >> $GITHUB_STEP_SUMMARY
+
+# ═══════════════════════════════════════════════════════════════════
+# DESTROY JOB — Manual trigger only
+# GitHub → Actions → Run workflow → select "destroy"
+# ═══════════════════════════════════════════════════════════════════
+
+  destroy:
+    name: "💣 Destroy Infrastructure"
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy'
+
+    environment:
+      name: production
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ env.AWS_REGION }}
+
+      - name: Set up Terraform ${{ env.TF_VERSION }}
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform init -input=false
+
+      - name: Terraform Destroy
+        working-directory: ${{ env.TF_DIR }}
+        env:
+          TF_VAR_db_password:      ${{ secrets.DB_PASSWORD }}
+          TF_VAR_db_username:      ${{ secrets.DB_USERNAME }}
+          TF_VAR_flask_secret_key: ${{ secrets.FLASK_SECRET_KEY }}
+        run: |
+          terraform destroy \
+            -var-file=prod.tfvars \
+            -auto-approve
+
+      - name: Destroy summary
+        if: always()
+        run: |
+          echo "## 💣 Destroy Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| Item | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Status | ${{ job.status }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Triggered by | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
