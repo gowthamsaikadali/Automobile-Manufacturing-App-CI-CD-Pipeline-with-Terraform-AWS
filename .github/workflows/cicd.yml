@@ -10,7 +10,6 @@ permissions:
   contents: read
   pull-requests: write
   id-token: write
-  checks: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -172,6 +171,7 @@ jobs:
             -out=tfplan \
             -no-color \
             2>&1 | tee plan-output.txt
+        continue-on-error: true
 
       - name: Post plan as PR comment
         uses: actions/github-script@v7
@@ -331,27 +331,6 @@ jobs:
         with:
           name: automobile-app-${{ github.sha }}
           path: ./dist
-      #remove this later    
-      - name: Debug SSH key
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
-        run: |
-          echo "$SSH_PRIVATE_KEY" > /tmp/deploy_key.pem
-          chmod 600 /tmp/deploy_key.pem
-          
-          echo "=== Key Stats ==="
-          wc -c < /tmp/deploy_key.pem
-          wc -l < /tmp/deploy_key.pem
-          head -1 /tmp/deploy_key.pem
-          tail -1 /tmp/deploy_key.pem
-          
-          echo "=== SSH Verbose Test ==="
-          ssh -i /tmp/deploy_key.pem \
-              -o StrictHostKeyChecking=no \
-              -o ConnectTimeout=10 \
-              -v \
-              ec2-user@13.207.194.179 "echo OK" 2>&1 | grep -E "debug1|Permission|Offering|identity"
-
 
       - name: Deploy app via SSH
         env:
@@ -387,7 +366,7 @@ jobs:
 
             echo "━━━ Installing Python virtual env ━━━"
             cd /var/www/automobile-app
-            python3 -m venv venv
+            python3.8 -m venv venv
             source venv/bin/activate
             pip install -r requirements.txt
 

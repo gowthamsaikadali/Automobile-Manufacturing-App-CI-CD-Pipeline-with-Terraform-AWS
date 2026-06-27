@@ -1,16 +1,16 @@
 #!/bin/bash
-# terraform-project/modules/compute/user_data.sh.tpl
-# Runs ONCE on first EC2 boot. Variables injected by Terraform templatefile().
-
 set -e
 exec > /var/log/user-data.log 2>&1
 
 echo "=== Automobile Manufacturing App Bootstrap ==="
 echo "Started: $(date)"
 
-# ── System packages ────────────────────────────────────────────────
-yum update -y
-yum install -y python3 python3-pip python3-devel gcc unzip
+# ── System packages (Amazon Linux 2023 uses dnf not yum) ──────────
+dnf update -y
+dnf install -y python3 python3-pip python3-devel gcc unzip
+
+# ── Verify Python version (should be 3.11) ────────────────────────
+python3 --version
 
 # ── App directories ────────────────────────────────────────────────
 mkdir -p /var/www/automobile-app
@@ -18,7 +18,7 @@ mkdir -p /var/log/automobile-app
 mkdir -p /etc/automobile-app
 chown ec2-user:ec2-user /var/www/automobile-app /var/log/automobile-app
 
-# ── Environment variables file (chmod 600 = only root reads it) ────
+# ── Environment variables file ─────────────────────────────────────
 cat > /etc/automobile-app/env << 'ENVEOF'
 FLASK_ENV=production
 DATABASE_URL=mysql+pymysql://${db_username}:${db_password}@${db_host}:3306/${db_name}
@@ -56,4 +56,3 @@ systemctl daemon-reload
 systemctl enable automobile-app
 
 echo "Bootstrap complete: $(date)"
-echo "Waiting for CI/CD pipeline to deploy the application..."
