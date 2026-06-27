@@ -31,7 +31,7 @@ RDS MySQL (private subnet, port 3306)
 
 ---
 
-## CI/CD Pipeline
+## CI/CD Pipeline  ..
 
 ```
 Push / PR to main
