@@ -1,16 +1,17 @@
 #!/bin/bash
+# Amazon Linux 2023 — Python 3.11 built-in, uses dnf not yum
 set -e
 exec > /var/log/user-data.log 2>&1
 
 echo "=== Automobile Manufacturing App Bootstrap ==="
 echo "Started: $(date)"
 
-# ── System packages (Amazon Linux 2023 uses dnf not yum) ──────────
+# ── System packages ────────────────────────────────────────────────
 dnf update -y
 dnf install -y python3 python3-pip python3-devel gcc unzip
 
-# ── Verify Python version (should be 3.11) ────────────────────────
-python3 --version
+# ── Verify Python version ──────────────────────────────────────────
+echo "Python version: $(python3 --version)"
 
 # ── App directories ────────────────────────────────────────────────
 mkdir -p /var/www/automobile-app
@@ -56,3 +57,4 @@ systemctl daemon-reload
 systemctl enable automobile-app
 
 echo "Bootstrap complete: $(date)"
+echo "Waiting for CI/CD pipeline to deploy the application..."
