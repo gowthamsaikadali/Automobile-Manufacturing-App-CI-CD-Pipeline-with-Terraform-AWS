@@ -358,7 +358,7 @@ jobs:
           ENV'
           sudo chmod 600 /etc/automobile-app/env
           echo "✅ Env file written"
-          cat /etc/automobile-app/env
+          
 
           echo "━━━ Running DB seed ━━━"
           cd /var/www/automobile-app
