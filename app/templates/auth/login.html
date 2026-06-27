@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Login — ForgePoint{% endblock %}
+{% block content %}
+<div class="row justify-content-center mt-5">
+  <div class="col-md-4">
+    <div class="card shadow-sm border-0 rounded-3">
+      <div class="card-body p-4">
+        <h4 class="mb-1 fw-bold text-center"><i class="bi bi-car-front-fill text-danger me-2"></i>ForgePoint</h4>
+        <p class="text-muted text-center mb-4">Automobile Manufacturing System</p>
+        <form method="POST">
+          {{ form.hidden_tag() }}
+          <div class="mb-3">
+            {{ form.username.label(class="form-label fw-semibold") }}
+            {{ form.username(class="form-control" + (" is-invalid" if form.username.errors else "")) }}
+            {% for e in form.username.errors %}
+              <div class="invalid-feedback">{{ e }}</div>
+            {% endfor %}
+          </div>
+          <div class="mb-3">
+            {{ form.password.label(class="form-label fw-semibold") }}
+            {{ form.password(class="form-control" + (" is-invalid" if form.password.errors else "")) }}
+            {% for e in form.password.errors %}
+              <div class="invalid-feedback">{{ e }}</div>
+            {% endfor %}
+          </div>
+          {{ form.submit(class="btn btn-danger w-100 fw-semibold") }}
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Production Orders — ForgePoint{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h4 class="fw-bold mb-0">Production Orders</h4>
+  {% if current_user.role in ['admin','manager'] %}
+  <a href="{{ url_for('production.add') }}" class="btn btn-danger btn-sm">
+    <i class="bi bi-plus-lg me-1"></i>New Order
+  </a>
+  {% endif %}
+</div>
+
+<!-- Status filter tabs -->
+<div class="mb-3">
+  {% for s in ['','planned','in_progress','completed','cancelled'] %}
+  <a href="?status={{ s }}"
+     class="btn btn-sm me-1 {% if status == s %}btn-danger{% else %}btn-outline-secondary{% endif %}">
+    {{ s.replace('_',' ').title() if s else 'All' }}
+  </a>
+  {% endfor %}
+</div>
+
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <table class="table table-hover mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Order #</th><th>Vehicle</th><th>Qty</th>
+          <th>Status</th><th>Priority</th><th>Start</th><th>End</th>
+          {% if current_user.role in ['admin','manager'] %}<th>Actions</th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+      {% for o in orders %}
+      <tr>
+        <td class="fw-semibold">{{ o.order_number }}</td>
+        <td>{{ o.vehicle.model_name }}</td>
+        <td>{{ o.quantity }}</td>
+        <td><span class="badge badge-{{ o.status }}">{{ o.status.replace('_',' ').title() }}</span></td>
+        <td>
+          {% if o.priority == 'high' %}<span class="badge bg-danger">High</span>
+          {% elif o.priority == 'low' %}<span class="badge bg-secondary">Low</span>
+          {% else %}<span class="badge bg-primary">Normal</span>{% endif %}
+        </td>
+        <td>{{ o.start_date or '—' }}</td>
+        <td>{{ o.end_date or '—' }}</td>
+        {% if current_user.role in ['admin','manager'] %}
+        <td>
+          <a href="{{ url_for('production.edit', id=o.id) }}" class="btn btn-outline-primary btn-sm">
+            <i class="bi bi-pencil"></i>
+          </a>
+          {% if current_user.role == 'admin' %}
+          <form method="POST" action="{{ url_for('production.delete', id=o.id) }}" class="d-inline"
+                onsubmit="return confirm('Delete order?')">
+            <button class="btn btn-outline-danger btn-sm"><i class="bi bi-trash"></i></button>
+          </form>
+          {% endif %}
+        </td>
+        {% endif %}
+      </tr>
+      {% else %}
+      <tr><td colspan="8" class="text-center text-muted py-4">No orders found.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

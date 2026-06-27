@@ -1,0 +1,6 @@
+aws_region    = "ap-south-1"
+project_name  = "automobile-manufacturing"
+environment   = "dev"
+instance_type = "t3.micro"
+key_pair_name = "automobile-key"
+db_name       = "automobile_db_dev"
