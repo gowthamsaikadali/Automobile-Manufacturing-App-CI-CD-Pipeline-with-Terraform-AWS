@@ -302,7 +302,7 @@ jobs:
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 # ═══════════════════════════════════════════════════════════════════
-# JOB 6 — DEPLOY
+# JOB 6 — DEPLOY   .........
 # THE KEY FIX: DATABASE_URL written to a temp script and sourced
 # so seed.py always connects to RDS — never SQLite
 # ═══════════════════════════════════════════════════════════════════
